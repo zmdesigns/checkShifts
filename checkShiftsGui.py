@@ -8,6 +8,7 @@ from tkinter import filedialog
 from tkinter import messagebox
 
 clientsFilename = 'clients.csv'
+filterOutListFilename = 'filter.csv'
 scheduleFilename = ''
 visitsFilename = ''
 
@@ -104,12 +105,21 @@ def getVisitDatetimes(visit):
     visitEnd = visitStart.shift(hours=int(visitLength[0]),minutes=int(visitLength[1]))
     return visitStart, visitEnd
 
+def getFilterList():
+    filterOutList = []
+    if exists(filterOutListFilename):
+        with open(filterOutListFilename, newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                filterOutList.append(row['filterOut'])
+    return filterOutList
+
 # Retrieve client list, schedule, and vists from files or return if not selected/empty
 # For each record in schedule, if a visit is not found that matches it, add it to missing list
 # Write missing list to a missingShifts.csv
 def findMissingVisits():
     missing = []
-    filterOutList = ['School', 'AS ONE', 'Normandy', 'Day Program']
+    filterOutList = getFilterList()
     clients = getClientsFromFile()
     schedule = getScheduleFromFile(clients, filterOutList)
     visits = getVisitsFromFile()
