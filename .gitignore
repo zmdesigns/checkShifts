@@ -2,3 +2,10 @@ reports
 reports/*
 *.xlsx
 *.csv
+*.env
+dist
+dist/*
+__pycache__
+__pycache__/*
+build
+buid/*

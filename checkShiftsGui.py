@@ -1,22 +1,53 @@
 from asyncio.windows_events import NULL
 import csv
 import arrow
-from os.path import exists
+import os
 from tkinter import *
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import messagebox
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 clientsFilename = 'clients.csv'
 filterOutListFilename = 'filter.csv'
-scheduleFilename = ''
 visitsFilename = ''
 
-# Open a choose file dialog for schedule
-# Called from button in GUI
-def openScheduleDialog():
-    global scheduleFilename
-    scheduleFilename = filedialog.askopenfilename()
+def requestSchedule(clients, filterOutList):
+    userDetails = {
+    'client_id': os.environ["CHECKSHIFTS_CLIENTID"],
+    'client_secret': os.environ["CHECKSHIFTS_CLIENTSECRET"],
+    'grant_type': 'password',
+    'username': os.environ["CHECKSHIFTS_USERNAME"],
+    'password': os.environ["CHECKSHIFTS_PASSWORD"],
+    'redirect_uri': ''
+    }
+    tokenReq = requests.post('https://www.humanity.com/oauth2/token.php', data=userDetails)
+    tokenRes = tokenReq.json()
+    accessToken = tokenRes['access_token']
+    scheduleParams = {
+        'access_token': accessToken,
+        'start_date': startDate.get(),
+        'end_date': endDate.get(),
+        'fields': 'employee,location,start_day,end_day,start_time,end_time,total_time',
+        'type': 'shifts'
+    }
+    scheduleReq = requests.get('https://www.humanity.com/api/v2/reports/custom?', params=scheduleParams)
+    scheduleRes = scheduleReq.json()
+    scheduleReport = scheduleRes['data']
+    schedule = []
+
+    for key in scheduleReport:
+        reportRow = scheduleReport[key]
+        if key.isnumeric():
+            if reportRow['location'] != '':
+                reportRow['location'] = flipName(reportRow['location'])
+                if reportRow['location'] in clients and reportRow['employee'] not in filterOutList:
+                    reportRow['employee'] = flipName(reportRow['employee'])
+                    schedule.append(reportRow)
+    return schedule
 
 # Open a choose file dialog for visits
 # Called from button in GUI
@@ -34,34 +65,20 @@ def flipName(name):
 # Open clients csv file and return list of clients
 def getClientsFromFile():
     clients = []
-    if exists(clientsFilename):
+    if os.path.exists(clientsFilename):
         with open(clientsFilename, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
                 clients.append(row['CLIENT LAST NAME'] + ', ' + row['CLIENT FIRST NAME'])
+    else:
+        messagebox.showwarning(message='visits.csv file is empty or does not exist!')
     return clients
-
-# Open schedule csv file
-# return list of schedules that have a client in paramter clients list
-# and an employee that does not exists in paramter filterOutList
-def getScheduleFromFile(clients, filterOutList):
-    schedule = [] 
-    if exists(scheduleFilename):    
-        with open(scheduleFilename, newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row in reader:
-                if row['location'] != '':
-                    row['location'] = flipName(row['location'])
-                    if row['location'] in clients and row['employee'] not in filterOutList:
-                        row['employee'] = flipName(row['employee'])
-                        schedule.append(row)
-    return schedule
 
 # Open visits csv file
 # return visits as a list
 def getVisitsFromFile():
     visits = []
-    if exists(visitsFilename):
+    if os.path.exists(visitsFilename):
         with open(visitsFilename, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
@@ -107,7 +124,7 @@ def getVisitDatetimes(visit):
 
 def getFilterList():
     filterOutList = []
-    if exists(filterOutListFilename):
+    if os.path.exists(filterOutListFilename):
         with open(filterOutListFilename, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
@@ -121,19 +138,14 @@ def findMissingVisits():
     missing = []
     filterOutList = getFilterList()
     clients = getClientsFromFile()
-    schedule = getScheduleFromFile(clients, filterOutList)
+    schedule = requestSchedule(clients, filterOutList)
+    # schedule = getScheduleFromFile(clients, filterOutList)
     visits = getVisitsFromFile()
     
-    if not clients:
-        messagebox.showwarning(message='visits.csv file is empty or does not exist! Aborting..')
-        return
     if not schedule:
-        if not scheduleFilename:
-            messagebox.showwarning(message='No schedule file selected. Please select a schedule file first.')
-        else:
-            messagebox.showwarning(message=f'Could not find any schedules for clients in Schedule file: {scheduleFilename}')
+        messagebox.showwarning(message='No schedule found.')
         return
-
+        
     if not visits:
         if not visitsFilename:
             messagebox.showwarning(message='No visits file selected. Please select a visits file first.')
@@ -143,8 +155,8 @@ def findMissingVisits():
     
     for record in schedule:
         match = False
-        scheduledStart = arrow.get(record['start_day'] + ' ' + record['start_time'], 'MM/DD/YYYY h:mmA')
-        scheduledEnd = arrow.get(record['end_day'] + ' ' + record['end_time'], 'MM/DD/YYYY h:mmA')
+        scheduledStart = arrow.get(record['start_day'] + ' ' + record['start_time'], 'MMM D, YYYY h:mmA')
+        scheduledEnd = arrow.get(record['end_day'] + ' ' + record['end_time'], 'MMM D, YYYY h:mmA')
         for visit in visits:
             if visit['Client Name'] == record['location']:
                 visitStart, visitEnd = getVisitDatetimes(visit)
@@ -156,7 +168,7 @@ def findMissingVisits():
         if match == False:
             missing.append(record)
 
-    print('Missing ' + str(len(missing)) + ' out of ' + str(len(schedule)) + ' scheduled and ' + str(len(visits)) + ' visits')
+    messagebox.showinfo(message=str(round(len(missing) / len(schedule) * 100)) + '% of shifts missing (' + str(len(missing)) + '/' + str(len(schedule)) + ')')
     writeMissingShiftsFile(missing)
     
 
@@ -169,9 +181,14 @@ mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
 root.columnconfigure(0, weight=1)
 root.rowconfigure(0, weight=1)
 
+startDate = StringVar()
+endDate = StringVar()
 label = ttk.Label(mainframe, text='Find missing shifts from a schedule and a visits file.\nSchedule file: Exported .csv file from the custom report called "Scheduled Shifts" in Humanity Scheduler\nVisits file: Exported .csv file from Sandata EVV with filtered "visit type" as "verified"\nSchedule and visits files should be for the same date range\nFind missing shifts will create a "missingShifts.csv" file').grid(column=1, row=1)
-openScheduleButton = ttk.Button(mainframe, text='Select Schedule File', command=openScheduleDialog).grid(column=1, row=2, sticky=(W))
-openVisitsButton = ttk.Button(mainframe, text='Select Visits File', command=openVisitsDialog).grid(column=1, row=3, sticky=(W))
+startDateLabel = ttk.Label(mainframe, text="Start Date").grid(column=1, row=2, sticky=(E))
+startDateEntry = ttk.Entry(mainframe, textvariable=startDate).grid(column=2, row=2,  sticky=(W))
+endDateLabel = ttk.Label(mainframe, text="End Date").grid(column=1, row=3, sticky=(E))
+endDateEntry = ttk.Entry(mainframe, textvariable=endDate).grid(column=2, row=3,  sticky=(W))
+openVisitsButton = ttk.Button(mainframe, text='Select Visits File', command=openVisitsDialog).grid(column=1, row=4, sticky=(W))
 findMissingButton = ttk.Button(mainframe, text='Find Missing Visits', command=findMissingVisits).grid(column=1, row=5)
 
 root.mainloop()
