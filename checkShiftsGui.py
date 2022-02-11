@@ -112,19 +112,19 @@ class CheckShifts:
     # For each record in schedule, if a visit is not found that matches it, add it to missing list
     # Write missing list to a missingShifts.csv
     def findMissingVisits(self):
-        visits, clients = self._getVisitsAndClientsFromFile(self.visitsFilename)
-        filterEmployees = self._getFilterList()
         missing = []
+        visits, clients = self._getVisitsAndClientsFromFile(self.visitsFilename)
 
+        if not visits:
+            messagebox.showwarning(message='Could not find any visits in visits file')
+            return
+
+        filterEmployees = self._getFilterList()
         schedule = Schedule(self.startDate.format('YYYY/MM/DD'), self.endDate.format('YYYY/MM/DD'), clients, filterEmployees)
         schedule.getSchedule()
         
         if not schedule.schedule:
             messagebox.showwarning(message='No schedule found.')
-            return
-            
-        if not visits:
-            messagebox.showwarning(message='Could not find any visits in visits file')
             return
         
         for record in schedule.schedule:
@@ -134,15 +134,13 @@ class CheckShifts:
             for visit in visits:
                 if visit['Client Name'] == record['location']:
                     visitStart, visitEnd = getVisitDatetimes(visit)
-
                     if timeWithinSpan(visitStart, scheduledStart, 30) and timeWithinSpan(visitEnd, scheduledEnd, 30):
                         match = True
                         break
-            
             if match == False:
                 missing.append(record)
 
-        messagebox.showinfo('Done')
+        messagebox.showinfo(message='Done! View MissingShifts.csv for results.')
         self._writeMissingShiftsFile(missing)
 
 # Open a choose file dialog for visits
@@ -181,7 +179,7 @@ def getVisitDatetimes(visit):
 
     if len(visitLength) <= 1:
         print(visitLength)
-        return NULL
+        return None
 
     visitEnd = visitStart.shift(hours=int(visitLength[0]),minutes=int(visitLength[1]))
     return visitStart, visitEnd
@@ -199,8 +197,8 @@ mainframe.grid(column=0, row=0, sticky=(N, W, E, S))
 root.columnconfigure(0, weight=1)
 root.rowconfigure(0, weight=1)
 
-label = ttk.Label(mainframe, text='Find missing shifts from a schedule and a visits file.\nSchedule file: Exported .csv file from the custom report called "Scheduled Shifts" in Humanity Scheduler\nVisits file: Exported .csv file from Sandata EVV with filtered "visit type" as "verified"\nSchedule and visits files should be for the same date range\nFind missing shifts will create a "missingShifts.csv" file').grid(column=1, row=1)
-openVisitsButton = ttk.Button(mainframe, text='Select Visits File', command=openVisitsDialog).grid(column=1, row=4, sticky=(W))
-findMissingButton = ttk.Button(mainframe, text='Find Missing Visits', command=checkVisits).grid(column=1, row=5)
+label = ttk.Label(mainframe, text='Select exported vists file from CalEvv.').grid(column=1, row=1)
+openVisitsButton = ttk.Button(mainframe, text='Select Visits File', command=openVisitsDialog).grid(column=1, row=2, sticky=(W))
+findMissingButton = ttk.Button(mainframe, text='Find Missing Visits', command=checkVisits).grid(column=1, row=3, sticky=(W))
 
 root.mainloop()
